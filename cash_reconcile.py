@@ -36,10 +36,23 @@ SIM_THRESHOLD  = 0.2      # 摘要相似度
 AMT_TOLERANCE  = 0.01     # 金额绝对误差
 
 
+def _load_excel_autoheader(path: Path, required: list[str]) -> pd.DataFrame:
+    """Load Excel file and detect header row containing required columns."""
+    preview = pd.read_excel(path, header=None, dtype=str).fillna("")
+    header_row = 0
+    for idx, row in preview.iterrows():
+        cols = [str(c).strip() for c in row.tolist()]
+        if all(r in cols for r in required):
+            header_row = idx
+            break
+    df = pd.read_excel(path, header=header_row, dtype=str).fillna("")
+    df.rename(columns=lambda x: str(x).strip(), inplace=True)
+    return df
+
+
 # ---------- 1. 读取 ----------
 def read_cash(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path, dtype=str).fillna("")
-    df.rename(columns=lambda x: str(x).strip(), inplace=True)
+    df = _load_excel_autoheader(path, ["借方", "贷方"])
     # 转数值列
     for col in ["借方", "贷方"]:
         try:
@@ -50,8 +63,7 @@ def read_cash(path: Path) -> pd.DataFrame:
 
 
 def read_k3(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path, dtype=str).fillna("")
-    df.rename(columns=lambda x: str(x).strip(), inplace=True)
+    df = _load_excel_autoheader(path, ["借方", "贷方"])
     for col in ["借方", "贷方"]:
         try:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
