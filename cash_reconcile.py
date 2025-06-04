@@ -37,14 +37,30 @@ AMT_TOLERANCE  = 0.01     # 金额绝对误差
 
 
 def _load_excel_autoheader(path: Path, required: list[str]) -> pd.DataFrame:
-    """Load Excel file and detect header row containing required columns."""
+    """Load Excel and automatically locate the header row.
+
+    Some exported spreadsheets contain a few introductory rows before the
+    actual data.  The previous implementation simply defaulted to row ``0``
+    when the required columns were not found which resulted in ``Unnamed``
+    column names.  To be more robust we now scan all rows and look for cells
+    that *contain* the required text.  If no such row exists, an explicit
+    ``ValueError`` is raised so the caller can provide a clearer error.
+    """
+
     preview = pd.read_excel(path, header=None, dtype=str).fillna("")
-    header_row = 0
+    header_row: int | None = None
+
     for idx, row in preview.iterrows():
         cols = [str(c).strip() for c in row.tolist()]
-        if all(r in cols for r in required):
+        if all(any(r in c for c in cols) for r in required):
             header_row = idx
             break
+
+    if header_row is None:
+        raise ValueError(
+            f"在文件 {path} 中未找到包含 {required} 的表头"
+        )
+
     df = pd.read_excel(path, header=header_row, dtype=str).fillna("")
     df.rename(columns=lambda x: str(x).strip(), inplace=True)
     return df
@@ -101,6 +117,7 @@ def preprocess_k3(df: pd.DataFrame) -> pd.DataFrame:
 # ---------- 4. 核对 ----------
 def reconcile(cash: pd.DataFrame, k3: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     matched_rows = []
+    used_cash_idx = set()
     used_k3_idx  = set()
 
     for i, c_row in cash.iterrows():
@@ -118,6 +135,7 @@ def reconcile(cash: pd.DataFrame, k3: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
 
         if best_match is not None:
             used_k3_idx.add(best_match)
+            used_cash_idx.add(i)
             k_row = k3.loc[best_match]
             matched_rows.append(
                 {
@@ -132,7 +150,7 @@ def reconcile(cash: pd.DataFrame, k3: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
             )
 
     matched_df   = pd.DataFrame(matched_rows)
-    unmatched_df = cash.drop(index=matched_df.index, errors="ignore")
+    unmatched_df = cash.drop(index=list(used_cash_idx), errors="ignore")
     unmatched_k3 = k3.drop(index=list(used_k3_idx), errors="ignore")
 
     return matched_df, unmatched_df, unmatched_k3
