@@ -14,11 +14,11 @@ Created on Wed Jun  4 10:15:00 2025
 逻辑概要
 1. 读取两本 Excel
 2. 现金账：借方为正、贷方取负；合并“类型+业务日期+报表人”→ 摘要
-   · “市民住院预交款”按业务日期汇总
+   · “市民住院预交款”、“市民住院操作员”、“市民住院”按业务日期汇总
 3. 金蝶账：借方为正、贷方取负；保留原“摘要”
-4. 模糊比对  
-   · 摘要相似度 > 0.2（20 %）  
-   · 金额差 |Δ| < 0.01  
+4. 模糊比对
+   · 摘要相似度 > 0.2（20 %）
+   · 金额差 |Δ| < 0.01
 5. 输出匹配、未匹配列表（Excel）
 ------------------------------------------------------------------
 """
@@ -34,6 +34,7 @@ OUTPUT    = CASH_XLSX.parent / "核对结果.xlsx"
 
 SIM_THRESHOLD  = 0.2      # 摘要相似度
 AMT_TOLERANCE  = 0.01     # 金额绝对误差
+SPECIAL_TYPES  = ["市民住院预交款", "市民住院操作员", "市民住院"]
 
 
 def _load_excel_autoheader(path: Path, required: list[str]) -> pd.DataFrame:
@@ -89,16 +90,16 @@ def read_k3(path: Path) -> pd.DataFrame:
 
 # ---------- 2. 现金账处理 ----------
 def preprocess_cash(df: pd.DataFrame) -> pd.DataFrame:
-    # 特殊汇总：市民住院预交款
-    mask_prepay = df["类型"].str.contains("市民住院预交款", na=False)
-    if mask_prepay.any():
+    # 特殊汇总：按业务日期汇总指定类型
+    mask_special = df["类型"].isin(SPECIAL_TYPES)
+    if mask_special.any():
         grp = (
-            df[mask_prepay]
-            .groupby("业务日期", as_index=False)[["借方", "贷方"]]
+            df[mask_special]
+            .groupby(["类型", "业务日期"], as_index=False)[["借方", "贷方"]]
             .sum()
-            .assign(类型="市民住院预交款", 报表人="汇总")
+            .assign(报表人="汇总")
         )
-        df = pd.concat([df.loc[~mask_prepay], grp], ignore_index=True)
+        df = pd.concat([df.loc[~mask_special], grp], ignore_index=True)
 
     # 生成摘要
     df["摘要"] = df["类型"].str.strip() + "-" + df["业务日期"].astype(str).str.strip() + "-" + df["报表人"].str.strip()
